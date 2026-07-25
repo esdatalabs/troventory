@@ -1,0 +1,15 @@
+// See https://github.com/devcontainers/images/tree/v0.4.18/src/go for inherited features
+{
+	"name": "Go",
+	"image": "mcr.microsoft.com/devcontainers/go:1.26-trixie",
+	"mounts": [
+		"type=bind,source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,readonly,consistency=cached",
+		"type=bind,source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,readonly,consistency=cached"
+	],
+	// Enable pulling packages from github
+	"containerEnv": {
+        "GOPRIVATE": "github.com/esdatalabs/*",
+        "GONOPROXY": "github.com/esdatalabs/*",
+        "GONOSUMDB": "github.com/esdatalabs/*"
+    }
+}

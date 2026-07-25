@@ -1,0 +1,30 @@
+name: Workforce CI Pipeline
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+permissions:
+  contents: read # Optional: allow read access to pull request. Use with `only-new-issues` option.
+
+jobs:
+  workforce-ci:
+    name: CI Pipeline
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Out Code
+        uses: actions/checkout@v6
+      - name: Setup Go Environment
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26' # Specify your desired Go version
+          cache: false
+      - name: Build
+        run: go build ./...
+      - name: Run Go tests
+        run: go test -v ./...    
+      - name: Lint it
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: 'latest' # Specify the golangci-lint version
+          args: --timeout=30s

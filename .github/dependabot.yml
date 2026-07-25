@@ -1,0 +1,20 @@
+version: 2
+
+multi-ecosystem-groups:
+  bau-deps:
+    schedule:
+      interval: "daily"
+
+updates:
+  - package-ecosystem: "devcontainers"
+    directory: "/.devcontainers"
+    patterns: ["*"]
+    multi-ecosystem-group: "bau-deps"
+  - package-ecosystem: gomod
+    directory: "/"
+    patterns: ["*"]
+    multi-ecosystem-group: "bau-deps"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    patterns: ["*"]
+    multi-ecosystem-group: "bau-deps"
