@@ -11,5 +11,11 @@
         "GOPRIVATE": "github.com/esdatalabs/*",
         "GONOPROXY": "github.com/esdatalabs/*",
         "GONOSUMDB": "github.com/esdatalabs/*"
-    }
+    },
+	// Install CLI tools used by scripts/tdd-gates/*.sh:
+	//   - godog: Gherkin dry-run parsing (stage-a-gate.sh)
+	//   - yq: reads the .contract manifest's symbols list (stage-b-gate.sh)
+	//   - golangci-lint: lint pass (stage-c-gate.sh, stage-d-gate.sh), pinned to
+	//     match the version used in .github/workflows/ci.yml
+	"postCreateCommand": "go install github.com/cucumber/godog/cmd/godog@latest && go install github.com/mikefarah/yq/v4@latest && curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin latest"
 }
