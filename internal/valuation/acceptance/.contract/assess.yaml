@@ -1,0 +1,171 @@
+# Symbol manifest for internal/valuation/services/assess.
+#
+# This is the literal task list for Stage C (feature-implementer): every
+# symbol below is referenced by the step definitions, world.go, and fakes
+# under internal/valuation/acceptance/ and
+# internal/valuation/services/assess/assesstest/, but does not exist yet.
+# Because valuation is a brand-new feature, none of its packages (entities,
+# assess, assesstest's imports, or the top-level valuation package) exist on
+# disk at all. `go build ./...` therefore fails with a mix of "no required
+# module provides package" errors (for the not-yet-created packages) and
+# "undefined: X" errors once those packages exist but are missing members.
+# Every symbol Stage C needs to create to make these packages exist and
+# compile — and to make every scenario in assess.feature pass — is
+# enumerated here.
+#
+# Package: github.com/esdatalabs/troventory/internal/valuation/entities
+#   Money         - AmountCents int64; Currency string. Never a float64 for
+#                   a monetary amount, per ARCHITECTURE.md §6.
+#   Appraisal     - Value Money; AsOf string (raw "YYYY-MM-DD"); Reference
+#                   string (the idempotency key it was submitted under).
+#   ItemValuation - everything recorded toward one item's current value:
+#                     ItemDescription string
+#                     PurchasePrice Money
+#                     PurchaseDate string (raw "YYYY-MM-DD")
+#                     DepreciationRatePercent int (whole percent of
+#                       PurchasePrice depreciated per year, straight-line;
+#                       0 means "not configured")
+#                     Appraisals []Appraisal (every appraisal recorded for
+#                       the item, in submission order)
+#   Result        - the outcome of an assess.Command, delivered to
+#                   AuditGateway since Send has no return value:
+#                     CorrelationID string
+#                     Reference string
+#                     Err error (nil on success)
+#                     Value *Money — populated only on a successful
+#                       ActionComputeCurrentValue command; nil otherwise.
+#   Clock         - Now() time.Time, injected per ARCHITECTURE.md §6 (Time).
+#   AuditGateway  - RecordResult(ctx context.Context, result Result) error.
+#   Sentinel errors (errors.Is-checked business conditions):
+#     ErrItemNotFound             - the item does not exist in the items
+#                                   feature's catalog (per ItemGateway).
+#     ErrPurchasePriceNotPositive - a purchase price of zero or less was
+#                                   submitted.
+#     ErrAppraisalNotPositive     - an appraisal value of zero or less was
+#                                   submitted.
+#     ErrAppraisalOutOfOrder      - a new appraisal's as-of date is earlier
+#                                   than the item's most recently recorded
+#                                   appraisal's as-of date.
+#     ErrNoValuationRecorded      - returned by StorageGateway.FindByItem
+#                                   when neither a purchase price nor an
+#                                   appraisal has been recorded for the
+#                                   item yet; also the business-facing
+#                                   failure of ActionComputeCurrentValue in
+#                                   that case.
+#
+# Package: github.com/esdatalabs/troventory/internal/valuation/services/assess
+#   Action - int enum identifying which operation a Command performs:
+#     ActionRecordPurchasePrice  - records an item's baseline purchase price
+#                                  and date.
+#     ActionRecordAppraisal      - records a new appraisal for an item,
+#                                  idempotent by Command.Reference: the same
+#                                  Reference submitted twice must append the
+#                                  appraisal only once (see
+#                                  StorageGateway.AppendAppraisal).
+#     ActionConfigureDepreciation - sets an item's straight-line
+#                                  depreciation rate.
+#     ActionComputeCurrentValue  - computes an item's current value as of a
+#                                  given date; the value is reported via
+#                                  Result.Value, never returned directly
+#                                  (Send has no return value).
+#   Command - the assess service's single inbound message type:
+#     CorrelationID string
+#     Reference string (idempotency key; meaningful for
+#       ActionRecordAppraisal)
+#     Action Action
+#     ItemDescription string
+#     AmountCents int64 (purchase price or appraisal value, in cents;
+#       unused for ActionConfigureDepreciation/ActionComputeCurrentValue)
+#     Currency string (ISO 4217 code for AmountCents)
+#     Date string (raw "YYYY-MM-DD": purchase date for
+#       ActionRecordPurchasePrice, appraisal as-of date for
+#       ActionRecordAppraisal, or the date to compute current value as of
+#       for ActionComputeCurrentValue)
+#     DepreciationRatePercent int (meaningful only for
+#       ActionConfigureDepreciation)
+#
+#   Business rules the implementation must satisfy (see assess.feature):
+#     - Recording a purchase price or appraisal, or computing a current
+#       value, for an item ItemGateway doesn't know about fails with
+#       ErrItemNotFound.
+#     - A purchase price or appraisal amount that is zero or negative fails
+#       with ErrPurchasePriceNotPositive / ErrAppraisalNotPositive
+#       respectively, and nothing is persisted.
+#     - An appraisal dated earlier than the item's most recently recorded
+#       appraisal fails with ErrAppraisalOutOfOrder, and nothing is
+#       persisted. (Appraisals recorded out of chronological order relative
+#       to the purchase date are fine; only appraisal-vs-appraisal ordering
+#       is checked.)
+#     - Computing current value as of date D:
+#         - if the item has no purchase price and no appraisal recorded,
+#           fails with ErrNoValuationRecorded.
+#         - otherwise, the "base" is the most recent recorded appraisal (by
+#           AsOf) if any exist, else the purchase price; using the base
+#           value and its date as the starting point.
+#         - if no depreciation rate is configured (DepreciationRatePercent
+#           == 0), the current value equals the base value unchanged.
+#         - if a depreciation rate is configured, the current value equals
+#           the base value minus (DepreciationRatePercent% of the item's
+#           PurchasePrice) for each whole year elapsed between the base's
+#           date and D. (Depreciation is always a percentage of the
+#           original purchase price, not of the base value — see the
+#           "Depreciation continues from the most recent appraisal" and
+#           "Compute current value from the depreciated purchase price"
+#           scenarios: 1200 purchase price at 10%/year, appraised at 1000
+#           after 1 year, computed 1 year after that appraisal == 1000 -
+#           (0.10 * 1200) == 880.00, not 1000 - (0.10 * 1000).)
+#   StorageGateway - defined by assess (the consumer), per ARCHITECTURE.md
+#                   §3 rule 1:
+#                     FindByItem(ctx, itemDescription string) (entities.ItemValuation, error)
+#                       returns entities.ErrNoValuationRecorded if nothing
+#                       has been recorded for the item yet.
+#                     SavePurchasePrice(ctx, itemDescription string, price entities.Money, purchaseDate string) error
+#                     SaveDepreciationRate(ctx, itemDescription string, ratePercent int) error
+#                     AppendAppraisal(ctx, itemDescription string, appraisal entities.Appraisal, reference string) error
+#                       must be a no-op (does not append again) if
+#                       reference has already been applied.
+#                   (see internal/valuation/services/assess/assesstest/fakes.go
+#                   for the exact fake implementing this shape.)
+#   ItemGateway   - assess's own outbound dependency on the items feature's
+#                   catalog, per ARCHITECTURE.md §7 (never a direct import
+#                   of internal/items):
+#                     ItemExists(ctx, description string) (bool, error)
+#   Service       - channel + loop + orchestration, per ARCHITECTURE.md §4.
+#   New           - func New(items ItemGateway, storage StorageGateway,
+#                   audit entities.AuditGateway, clock entities.Clock,
+#                   log *slog.Logger, buffer int, timeout time.Duration) *Service
+#   (*Service).Send  - func (s *Service) Send(cmd Command)
+#   (*Service).Close - func (s *Service) Close()
+#
+# Package: github.com/esdatalabs/troventory/internal/valuation
+#   Dispatcher    - the feature's single inbound entry point:
+#                     AssessValue(cmd assess.Command) error // errors only on shutdown
+#                     Close()
+#   NewDispatcher - func NewDispatcher(assess *assess.Service) Dispatcher
+
+symbols:
+  - entities.Money
+  - entities.Appraisal
+  - entities.ItemValuation
+  - entities.Result
+  - entities.Clock
+  - entities.AuditGateway
+  - entities.ErrItemNotFound
+  - entities.ErrPurchasePriceNotPositive
+  - entities.ErrAppraisalNotPositive
+  - entities.ErrAppraisalOutOfOrder
+  - entities.ErrNoValuationRecorded
+  - assess.Action
+  - assess.ActionRecordPurchasePrice
+  - assess.ActionRecordAppraisal
+  - assess.ActionConfigureDepreciation
+  - assess.ActionComputeCurrentValue
+  - assess.Command
+  - assess.StorageGateway
+  - assess.ItemGateway
+  - assess.Service
+  - assess.New
+  - (*assess.Service).Send
+  - (*assess.Service).Close
+  - valuation.Dispatcher
+  - valuation.NewDispatcher
