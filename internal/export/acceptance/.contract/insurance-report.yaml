@@ -1,0 +1,163 @@
+# Symbol manifest for internal/export/services/insurance-report.
+#
+# This is the literal task list for Stage C (feature-implementer): every
+# symbol below is referenced by the step definitions, world.go, and fakes
+# under internal/export/acceptance/ and
+# internal/export/services/insurance-report/reporttest/, but does not exist
+# yet. Because export is a brand-new feature, none of its packages
+# (entities, the insurance-report service, reporttest's imports, or the
+# top-level export package) exist on disk at all. `go build ./...` therefore
+# fails with "no required module provides package" errors for every one of
+# them. Every symbol Stage C needs to create to make these packages exist
+# and compile — and to make every scenario in insurance-report.feature pass
+# — is enumerated here.
+#
+# Note on package naming: the service directory is
+# internal/export/services/insurance-report (matching the feature file's
+# name), but "insurance-report" is not a valid Go identifier, so the Go
+# files in that directory must declare `package report` (short, lowercase,
+# single word, per ARCHITECTURE.md §5) — mirroring real-world precedent for
+# import paths whose final segment isn't a valid package identifier. Every
+# reference below of the form `report.X` means "the symbol X in the package
+# declared by the .go files under internal/export/services/insurance-report".
+#
+# Design notes for Stage C (not mechanically enforced by this manifest, but
+# needed to make every scenario pass):
+#   - A generated Report's ReportLine's PurchasePrice/PurchaseDate/
+#     CurrentValue/CurrentValueAsOf come from ValuationGateway.FindByItem,
+#     not from ItemGateway — the valuation feature is this service's single
+#     source of truth for money figures, exactly as it is for the assess
+#     service in internal/valuation. ItemGateway supplies only Description,
+#     Category, and LocationName.
+#   - Only non-archived items (ItemGateway.ListActive already excludes
+#     archived items) are included on a generated Report.
+#   - An item with no purchase price and no appraisal recorded
+#     (ValuationGateway.FindByItem returns found=false) is still included
+#     on the report, with PurchasePrice/PurchaseDate left zero-valued and
+#     CurrentValue left nil ("no current value recorded").
+#   - An item with no assigned location (ItemGateway returns
+#     LocationName == "") is still included on the report, with
+#     LocationName left "" ("no location recorded").
+#   - Exporting in a format other than "CSV" or "PDF" fails with
+#     entities.ErrUnsupportedFormat before any Gateway is called, and no
+#     Report is generated (Result.Report stays nil).
+#   - Exporting when ItemGateway.ListActive returns no items fails with
+#     entities.ErrNoItemsToExport, and no Report is generated.
+#   - Generating a report is idempotent by Command.Reference: submitting
+#     the same Reference twice must call StorageGateway.SaveReport in a way
+#     that persists the report only once (StorageGateway.SaveReport is a
+#     no-op on a repeat reference, mirroring
+#     assess.StorageGateway.AppendAppraisal's contract).
+#
+# Package: github.com/esdatalabs/troventory/internal/export/entities
+#   Money         - AmountCents int64; Currency string. Never a float64 for
+#                   a monetary amount, per ARCHITECTURE.md §6.
+#   CatalogItem   - insurance-report's own read-only view of an item from
+#                   the items feature's catalog, per ARCHITECTURE.md §7
+#                   (never a direct import of internal/items):
+#                     Description string
+#                     Category string
+#                     LocationName string ("" if no location assigned)
+#   ItemValuation - insurance-report's own read-only view of an item's
+#                   recorded valuation from the valuation feature, per
+#                   ARCHITECTURE.md §7 (never a direct import of
+#                   internal/valuation):
+#                     PurchasePrice Money
+#                     PurchaseDate string (raw "YYYY-MM-DD")
+#                     CurrentValue *Money (nil if not computed)
+#                     CurrentValueAsOf string (raw "YYYY-MM-DD"; "" if
+#                       CurrentValue is nil)
+#   Report        - a generated insurance report:
+#                     Format string ("CSV" or "PDF")
+#                     Lines []ReportLine
+#   ReportLine    - one active item's row on a generated Report:
+#                     ItemDescription string
+#                     Category string
+#                     PurchasePrice Money
+#                     PurchaseDate string
+#                     CurrentValue *Money (nil = "no current value
+#                       recorded")
+#                     CurrentValueAsOf string
+#                     LocationName string ("" = "no location recorded")
+#   Result        - the outcome of a report.Command, delivered to
+#                   AuditGateway since Send has no return value:
+#                     CorrelationID string
+#                     Reference string
+#                     Err error (nil on success)
+#                     Report *Report (populated only on success; nil on
+#                       failure)
+#   Clock         - Now() time.Time, injected per ARCHITECTURE.md §6 (Time).
+#   AuditGateway  - RecordResult(ctx context.Context, result Result) error.
+#   Sentinel errors (errors.Is-checked business conditions):
+#     ErrUnsupportedFormat - the requested export format is neither "CSV"
+#                            nor "PDF".
+#     ErrNoItemsToExport   - ItemGateway.ListActive returned no items to
+#                            include in the report.
+#
+# Package: github.com/esdatalabs/troventory/internal/export/services/insurance-report
+#   (package declared as `package report` — see naming note above)
+#   Command - the insurance-report service's single inbound message type:
+#     CorrelationID string
+#     Reference string (idempotency key)
+#     Format string (requested export format, e.g. "CSV", "PDF", or an
+#       unsupported value like "XML")
+#   ItemGateway      - insurance-report's own outbound dependency on the
+#                      items feature's catalog, per ARCHITECTURE.md §3 rule
+#                      1 (defined by the consumer):
+#                        ListActive(ctx context.Context) ([]entities.CatalogItem, error)
+#                          returns every non-archived item currently in the
+#                          catalog.
+#   ValuationGateway - insurance-report's own outbound dependency on the
+#                      valuation feature:
+#                        FindByItem(ctx context.Context, itemDescription string) (entities.ItemValuation, bool, error)
+#                          returns found=false if neither a purchase price
+#                          nor an appraisal has been recorded for the item
+#                          yet.
+#   StorageGateway   - insurance-report's outbound dependency for persisting
+#                      generated reports, idempotent by submission
+#                      reference:
+#                        SaveReport(ctx context.Context, rpt entities.Report, reference string) error
+#                          must be a no-op (does not save again) if
+#                          reference has already been applied.
+#                        CountByReference(ctx context.Context, reference string) (int, error)
+#                          returns how many report documents have been
+#                          saved under reference.
+#                      (see
+#                      internal/export/services/insurance-report/reporttest/fakes.go
+#                      for the exact fake implementing this shape.)
+#   Service          - channel + loop + orchestration, per ARCHITECTURE.md
+#                      §4.
+#   New              - func New(items ItemGateway, valuation ValuationGateway,
+#                      storage StorageGateway, audit entities.AuditGateway,
+#                      clock entities.Clock, log *slog.Logger, buffer int,
+#                      timeout time.Duration) *Service
+#   (*Service).Send  - func (s *Service) Send(cmd Command)
+#   (*Service).Close - func (s *Service) Close()
+#
+# Package: github.com/esdatalabs/troventory/internal/export
+#   Dispatcher    - the feature's single inbound entry point:
+#                     ExportInsuranceReport(cmd report.Command) error // errors only on shutdown
+#                     Close()
+#   NewDispatcher - func NewDispatcher(report *report.Service) Dispatcher
+
+symbols:
+  - entities.Money
+  - entities.CatalogItem
+  - entities.ItemValuation
+  - entities.Report
+  - entities.ReportLine
+  - entities.Result
+  - entities.Clock
+  - entities.AuditGateway
+  - entities.ErrUnsupportedFormat
+  - entities.ErrNoItemsToExport
+  - report.Command
+  - report.ItemGateway
+  - report.ValuationGateway
+  - report.StorageGateway
+  - report.Service
+  - report.New
+  - (*report.Service).Send
+  - (*report.Service).Close
+  - export.Dispatcher
+  - export.NewDispatcher
