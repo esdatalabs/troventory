@@ -1,0 +1,129 @@
+# Symbol manifest for internal/items/services/catalog.
+#
+# This is the literal task list for Stage C (feature-implementer): every
+# symbol below is referenced by the step definitions, world.go, and fakes
+# under internal/items/acceptance/ and
+# internal/items/services/catalog/catalogtest/, but does not exist yet.
+# Because this is a brand-new feature, the packages themselves (entities,
+# catalog, and the top-level items package) don't exist on disk at all, so
+# `go build ./...` fails with a mix of "no required module provides
+# package" errors (for the packages that have no files on disk at all) and
+# "undefined: X" errors (once a package has at least one file, e.g.
+# catalogtest, which already compiles against the not-yet-existing entities
+# package). Every symbol Stage C needs to create to make these packages
+# exist and compile is enumerated here.
+#
+# Package: github.com/esdatalabs/troventory/internal/items/entities
+#   Item             - Description string; Category string;
+#                       PurchaseDate string (raw "YYYY-MM-DD", as captured
+#                       from the request — no validation/parsing is
+#                       exercised by these scenarios); PurchasePrice Money;
+#                       Vendor string; LocationName string ("" = no
+#                       location assigned); Photos []string; Archived bool.
+#   Money            - AmountCents int64; Currency string. Per
+#                       ARCHITECTURE.md §6, never a float64 for a monetary
+#                       amount.
+#   AssignedLocation - Name string; Archived bool. Catalog's own read-only
+#                       view of a location it validates an item's
+#                       assignment against — NOT the locations feature's own
+#                       Location entity, which catalog must not import
+#                       directly (ARCHITECTURE.md §7: features don't import
+#                       each other's services/providers). Returned by
+#                       catalog.LocationGateway.
+#   Result           - the outcome of a catalog.Command, delivered to
+#                       AuditGateway since Send has no return value. Needs
+#                       at least CorrelationID string, Reference string,
+#                       Err error (nil on success).
+#   Clock            - Now() time.Time, injected per ARCHITECTURE.md §6
+#                       (Time).
+#   AuditGateway     - RecordResult(ctx context.Context, result Result) error.
+#   Sentinel errors (errors.Is-checked business conditions):
+#     ErrItemNotFound             - the targeted item does not exist.
+#     ErrItemArchived             - the targeted item has already been
+#                                   archived (used both when updating an
+#                                   already-archived item and when
+#                                   re-archiving one).
+#     ErrItemDescriptionRequired  - create was submitted with an empty
+#                                   description.
+#     ErrItemCategoryRequired     - create was submitted with an empty
+#                                   category.
+#     ErrAssignedLocationNotFound - the item's requested location
+#                                   assignment does not exist, per
+#                                   catalog.LocationGateway.
+#     ErrAssignedLocationArchived - the item's requested location
+#                                   assignment has been archived, per
+#                                   catalog.LocationGateway.
+#
+# Package: github.com/esdatalabs/troventory/internal/items/services/catalog
+#   Action            - int/string enum identifying which operation a
+#                       Command performs: ActionCreate, ActionUpdate,
+#                       ActionArchive.
+#   Command           - CorrelationID string; Reference string (idempotency
+#                       key, meaningful for ActionCreate); Action Action;
+#                       TargetDescription string (ActionUpdate/ActionArchive:
+#                       the existing item's current description, used to
+#                       find it); Description string (ActionCreate: the new
+#                       item's description; ActionUpdate: the item's new
+#                       description); Category string; PurchaseDate string
+#                       ("YYYY-MM-DD"); PurchasePriceCents int64; Currency
+#                       string; Vendor string; LocationName *string (desired
+#                       location name, nil = no location assigned);
+#                       Photos []string.
+#   StorageGateway    - defined by catalog (the consumer), per
+#                       ARCHITECTURE.md §3 rule 1:
+#                         FindByDescription(ctx, description string) (entities.Item, error)
+#                         FindByReference(ctx, reference string) (entities.Item, error)
+#                         FindAll(ctx) ([]entities.Item, error)
+#                         Save(ctx, item entities.Item, reference string) error
+#                       (see
+#                       internal/items/services/catalog/catalogtest/fakes.go
+#                       for the exact fake implementing this shape.)
+#   LocationGateway   - catalog's own outbound dependency for validating an
+#                       item's location assignment — a read-only view onto
+#                       the locations feature's data, modeled as catalog's
+#                       own Gateway rather than an import of
+#                       internal/locations (ARCHITECTURE.md §7):
+#                         FindLocation(ctx, name string) (entities.AssignedLocation, error)
+#                       returning entities.ErrAssignedLocationNotFound if
+#                       name hasn't been seeded/doesn't exist.
+#   Service           - channel + loop + orchestration, per ARCHITECTURE.md
+#                       §4.
+#   New               - func New(storage StorageGateway, locations
+#                       LocationGateway, audit entities.AuditGateway,
+#                       clock entities.Clock, log *slog.Logger, buffer int,
+#                       timeout time.Duration) *Service
+#   (*Service).Send   - func (s *Service) Send(cmd Command)
+#   (*Service).Close  - func (s *Service) Close()
+#
+# Package: github.com/esdatalabs/troventory/internal/items
+#   Dispatcher    - the feature's single inbound entry point:
+#                     ManageItem(cmd catalog.Command) error // errors only on shutdown
+#                     Close()
+#   NewDispatcher - func NewDispatcher(catalog *catalog.Service) Dispatcher
+
+symbols:
+  - entities.Item
+  - entities.Money
+  - entities.AssignedLocation
+  - entities.Result
+  - entities.Clock
+  - entities.AuditGateway
+  - entities.ErrItemNotFound
+  - entities.ErrItemArchived
+  - entities.ErrItemDescriptionRequired
+  - entities.ErrItemCategoryRequired
+  - entities.ErrAssignedLocationNotFound
+  - entities.ErrAssignedLocationArchived
+  - catalog.Action
+  - catalog.ActionCreate
+  - catalog.ActionUpdate
+  - catalog.ActionArchive
+  - catalog.Command
+  - catalog.StorageGateway
+  - catalog.LocationGateway
+  - catalog.Service
+  - catalog.New
+  - (*catalog.Service).Send
+  - (*catalog.Service).Close
+  - items.Dispatcher
+  - items.NewDispatcher
