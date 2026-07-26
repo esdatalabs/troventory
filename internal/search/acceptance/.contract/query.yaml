@@ -1,0 +1,164 @@
+# Symbol manifest for internal/search/services/query.
+#
+# This is the literal task list for Stage C (feature-implementer): every
+# symbol below is referenced by the step definitions, world.go, and fakes
+# under internal/search/acceptance/ and
+# internal/search/services/query/querytest/, but does not exist yet. Because
+# search is a brand-new feature, its packages (internal/search,
+# internal/search/entities, internal/search/services/query) exist on disk
+# only as minimal doc.go stubs (package declaration + doc comment, no
+# members) — added deliberately so `go build ./...` fails with "undefined:
+# X" errors for every symbol below, rather than "no required module
+# provides package ..." errors for packages that don't exist at all. Every
+# symbol Stage C needs to add to make these packages compile — and to make
+# every scenario in query.feature pass — is enumerated here.
+#
+# Per ARCHITECTURE.md §7, search is its own feature and must NOT import
+# internal/items/services, internal/locations/services, or
+# internal/valuation/services directly. It reads whatever item, location,
+# and current-value data it needs through its own outbound Gateways
+# (defined by query, the consumer, per §3 rule 1), each sized to exactly
+# what query calls:
+#   - ItemGateway  reads the items feature's catalog (description, category,
+#                  assigned location, archived status).
+#   - LocationGateway resolves the locations feature's room -> container ->
+#                  shelf hierarchy, to support "a location and everything
+#                  nested under it" filtering.
+#   - ValueGateway reads the valuation feature's already-computed current
+#                  value for an item — it must never recompute one itself.
+#
+# Package: github.com/esdatalabs/troventory/internal/search/entities
+#   Money  - AmountCents int64; Currency string. Never a float64 for a
+#            monetary amount, per ARCHITECTURE.md §6.
+#   Item   - search's own read-only view of a matched/candidate item:
+#              Description string
+#              Category string
+#              LocationName string (the name of the location the item is
+#                assigned to; "" if none)
+#              Archived bool
+#              CurrentValue Money (the item's current value, as read via
+#                ValueGateway — populated by the query service before value-
+#                range filtering and before being placed in Result.Matches;
+#                zero-valued on whatever ItemGateway.FindAll itself returns)
+#   Result - the outcome of a query.Command, delivered to AuditGateway since
+#            Send has no return value:
+#              CorrelationID string
+#              Reference string
+#              Err error (nil on success)
+#              Matches []Item — every item matching the search's filters, in
+#                a stable, deterministic order (see "Search results are
+#                returned in a stable, predictable order": alphabetical by
+#                Description satisfies every scenario in query.feature).
+#                Empty (not nil-vs-non-nil-sensitive; just len() == 0) when
+#                nothing matches, or when Err is non-nil.
+#   Clock  - Now() time.Time, injected per ARCHITECTURE.md §6 (Time). Not
+#            exercised by any time-dependent business rule in query.feature
+#            today, but required by query.New's signature for consistency
+#            with every other feature's Service constructor in this
+#            codebase.
+#   AuditGateway - RecordResult(ctx context.Context, result Result) error.
+#   Sentinel errors (errors.Is-checked business conditions):
+#     ErrInvalidValueRange - a value-range filter's minimum exceeds its
+#                            maximum.
+#     ErrLocationNotFound  - a location filter names a location the
+#                            LocationGateway doesn't know about.
+#
+# Package: github.com/esdatalabs/troventory/internal/search/services/query
+#   Command - the query service's single inbound message type (this feature
+#             has exactly one verb, "search", so there is no Action enum —
+#             every zero-valued filter field means "no filter on this
+#             dimension"):
+#     CorrelationID string
+#     Reference string (idempotency key: submitting the same Reference
+#       twice must return the identical Result and must carry out the
+#       underlying search only once — see "Submitting the same search
+#       request twice returns identical results and is only carried out
+#       once". The Service must memoize by Reference internally, e.g. by
+#       recording the first Result for a given non-empty Reference and
+#       replaying it on a repeat, WITHOUT calling ItemGateway.FindAll again;
+#       confined to the Service's own single-goroutine loop per
+#       ARCHITECTURE.md §5 (Concurrency), it needs no additional Gateway.)
+#     DescriptionContains string ("" = no description filter; otherwise a
+#       case-sensitive substring match against Item.Description)
+#     Category string ("" = no category filter; exact match against
+#       Item.Category)
+#     LocationName string ("" = no location filter; otherwise matches items
+#       assigned to LocationName OR to any location LocationGateway.
+#       Descendants(ctx, LocationName) returns, i.e. LocationName and
+#       everything nested underneath it)
+#     MinValueCents *int64 (nil = no lower bound on CurrentValue)
+#     MaxValueCents *int64 (nil = no upper bound on CurrentValue)
+#     Currency string (ISO 4217 code MinValueCents/MaxValueCents are
+#       denominated in; meaningful only when a value-range filter is set)
+#
+#   Business rules the implementation must satisfy (see query.feature):
+#     - Every filter present on the Command narrows the result set; combined
+#       filters are AND'd together (see "Combine a description search with
+#       category and value filters").
+#     - Archived items are always excluded from results, regardless of
+#       which filters are set.
+#     - A value-range filter where MinValueCents > MaxValueCents fails with
+#       ErrInvalidValueRange, and no results are returned — reject this
+#       before calling any Gateway.
+#     - A location filter naming a location LocationGateway doesn't know
+#       about fails with ErrLocationNotFound, and no results are returned.
+#     - No matches is a normal, successful outcome (Err nil, Matches empty),
+#       never an error — including an empty catalog-wide match for a
+#       category/description with nothing in it.
+#     - A Command with every filter field at its zero value matches every
+#       active (non-archived) item.
+#     - Results are returned in a stable, deterministic order across calls
+#       (e.g. alphabetical by Description).
+#   ItemGateway - defined by query (the consumer), per ARCHITECTURE.md §3
+#                 rule 1 and §7 (never a direct import of internal/items):
+#                   FindAll(ctx context.Context) ([]entities.Item, error)
+#                     returns every item known to the catalog, including
+#                     archived ones — query itself is responsible for
+#                     excluding archived items.
+#                 (see internal/search/services/query/querytest/fakes.go
+#                 for the exact fake implementing this shape, including the
+#                 call-count tracking the idempotency scenario asserts on.)
+#   LocationGateway - defined by query (the consumer), per ARCHITECTURE.md
+#                 §3 rule 1 and §7 (never a direct import of
+#                 internal/locations):
+#                   Descendants(ctx context.Context, name string) ([]string, error)
+#                     returns name and every location nested (directly or
+#                     transitively) under it, or entities.ErrLocationNotFound
+#                     if name doesn't exist.
+#   ValueGateway - defined by query (the consumer), per ARCHITECTURE.md §3
+#                 rule 1 and §7 (never a direct import of
+#                 internal/valuation): reads an already-computed value, never
+#                 recomputes one:
+#                   CurrentValue(ctx context.Context, itemDescription string) (entities.Money, error)
+#   Service       - channel + loop + orchestration, per ARCHITECTURE.md §4.
+#   New           - func New(items ItemGateway, locations LocationGateway,
+#                   values ValueGateway, audit entities.AuditGateway,
+#                   clock entities.Clock, log *slog.Logger, buffer int,
+#                   timeout time.Duration) *Service
+#   (*Service).Send  - func (s *Service) Send(cmd Command)
+#   (*Service).Close - func (s *Service) Close()
+#
+# Package: github.com/esdatalabs/troventory/internal/search
+#   Dispatcher    - the feature's single inbound entry point:
+#                     Search(cmd query.Command) error // errors only on shutdown
+#                     Close()
+#   NewDispatcher - func NewDispatcher(query *query.Service) Dispatcher
+
+symbols:
+  - entities.Money
+  - entities.Item
+  - entities.Result
+  - entities.Clock
+  - entities.AuditGateway
+  - entities.ErrInvalidValueRange
+  - entities.ErrLocationNotFound
+  - query.Command
+  - query.ItemGateway
+  - query.LocationGateway
+  - query.ValueGateway
+  - query.Service
+  - query.New
+  - (*query.Service).Send
+  - (*query.Service).Close
+  - search.Dispatcher
+  - search.NewDispatcher
