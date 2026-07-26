@@ -22,17 +22,11 @@ if [ ! -s "$FEATURE_FILE" ]; then
 fi
 
 echo "-- syntax check --"
-if command -v godog >/dev/null 2>&1; then
-  DIR=$(dirname "$FEATURE_FILE")
-  if ! godog --dry-run "$FEATURE_FILE" > /tmp/stage-a-dryrun.log 2>&1; then
-    echo "FAIL: $FEATURE_FILE does not parse as valid Gherkin"
-    cat /tmp/stage-a-dryrun.log
-    exit 1
-  fi
-else
-  echo "NOTE: godog binary not found on PATH; skipping dry-run parse check, doing a light-weight structural check instead"
-  grep -qE '^\s*Feature:' "$FEATURE_FILE" || { echo "FAIL: no 'Feature:' line found"; exit 1; }
-fi
+# godog's CLI (v0.12+) dropped the top-level --dry-run flag, and even
+# `godog run` requires a buildable Go package for the target step definitions
+# — which don't exist yet at Stage A. So there is no godog-based dry-run
+# available at this stage regardless of version; do a structural check instead.
+grep -qE '^\s*Feature:' "$FEATURE_FILE" || { echo "FAIL: no 'Feature:' line found"; exit 1; }
 
 echo "-- required scenario categories --"
 grep -qiE '^\s*Scenario' "$FEATURE_FILE" || { echo "FAIL: no Scenario found in $FEATURE_FILE"; exit 1; }

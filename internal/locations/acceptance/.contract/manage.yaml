@@ -1,0 +1,82 @@
+# Symbol manifest for internal/locations/services/manage.
+#
+# This is the literal task list for Stage C (feature-implementer): every
+# symbol below is referenced by the step definitions, world.go, and fakes
+# under internal/locations/acceptance/ and
+# internal/locations/services/manage/managetest/, but does not exist yet.
+# Because this is a brand-new feature, the packages themselves (entities,
+# manage, and the top-level locations package) don't exist on disk at all —
+# `go build ./...` therefore fails with a mix of "no required module
+# provides package" errors (for the not-yet-created packages) and, for the
+# generated placeholder, "undefined: X" errors. Every symbol Stage C needs
+# to create to make these packages exist and compile is enumerated here.
+#
+# Package: github.com/esdatalabs/troventory/internal/locations/entities
+#   Location    - Name string; Parent string ("" = top-level); Archived bool.
+#   Result      - the outcome of a manage.Command, delivered to AuditGateway
+#                 since Send has no return value. Needs at least
+#                 CorrelationID string, Reference string, Err error (nil on
+#                 success).
+#   Clock       - Now() time.Time, injected per ARCHITECTURE.md §6 (Time).
+#   AuditGateway - RecordResult(ctx context.Context, result Result) error.
+#   Sentinel errors (errors.Is-checked business conditions):
+#     ErrLocationNotFound
+#     ErrLocationArchived
+#     ErrDuplicateLocationName
+#     ErrCyclicMove
+#     ErrLocationHasActiveChildren
+#
+# Package: github.com/esdatalabs/troventory/internal/locations/services/manage
+#   Action        - int/string enum identifying which operation a Command
+#                   performs: ActionCreate, ActionRename, ActionMove,
+#                   ActionArchive.
+#   Command       - CorrelationID string; Reference string (idempotency key,
+#                   meaningful for ActionCreate); Action Action;
+#                   TargetName string (location acted on: rename/move/
+#                   archive); Name string (create: new location's name;
+#                   rename: the new name); ParentName *string (create/move:
+#                   desired parent name, nil = top-level).
+#   StorageGateway - defined by manage (the consumer), per ARCHITECTURE.md
+#                   §3 rule 1:
+#                     FindByName(ctx, name string) (entities.Location, error)
+#                     FindByReference(ctx, reference string) (entities.Location, error)
+#                     ChildrenOf(ctx, parentName string) ([]entities.Location, error)
+#                     Save(ctx, loc entities.Location, reference string) error
+#                   (see internal/locations/services/manage/managetest/fakes.go
+#                   for the exact fake implementing this shape.)
+#   Service       - channel + loop + orchestration, per ARCHITECTURE.md §4.
+#   New           - func New(storage StorageGateway, audit entities.AuditGateway,
+#                   clock entities.Clock, log *slog.Logger, buffer int,
+#                   timeout time.Duration) *Service
+#   (*Service).Send  - func (s *Service) Send(cmd Command)
+#   (*Service).Close - func (s *Service) Close()
+#
+# Package: github.com/esdatalabs/troventory/internal/locations
+#   Dispatcher    - the feature's single inbound entry point:
+#                     ManageLocation(cmd manage.Command) error // errors only on shutdown
+#                     Close()
+#   NewDispatcher - func NewDispatcher(manage *manage.Service) Dispatcher
+
+symbols:
+  - entities.Location
+  - entities.Result
+  - entities.Clock
+  - entities.AuditGateway
+  - entities.ErrLocationNotFound
+  - entities.ErrLocationArchived
+  - entities.ErrDuplicateLocationName
+  - entities.ErrCyclicMove
+  - entities.ErrLocationHasActiveChildren
+  - manage.Action
+  - manage.ActionCreate
+  - manage.ActionRename
+  - manage.ActionMove
+  - manage.ActionArchive
+  - manage.Command
+  - manage.StorageGateway
+  - manage.Service
+  - manage.New
+  - (*manage.Service).Send
+  - (*manage.Service).Close
+  - locations.Dispatcher
+  - locations.NewDispatcher
