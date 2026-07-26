@@ -4,18 +4,26 @@
 	"image": "mcr.microsoft.com/devcontainers/go:1.26-trixie",
 	"mounts": [
 		"type=bind,source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,readonly,consistency=cached",
-		"type=bind,source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,readonly,consistency=cached"
+		"type=bind,source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,readonly,consistency=cached",
+		"source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
+		"source=${localEnv:HOME}/.zsh_history,target=/home/vscode/.zsh_history,type=bind"
 	],
 	// Enable pulling packages from github
 	"containerEnv": {
-        "GOPRIVATE": "github.com/esdatalabs/*",
-        "GONOPROXY": "github.com/esdatalabs/*",
-        "GONOSUMDB": "github.com/esdatalabs/*"
-    },
+		"GOPRIVATE": "github.com/esdatalabs/*",
+		"GONOPROXY": "github.com/esdatalabs/*",
+		"GONOSUMDB": "github.com/esdatalabs/*"
+	},
+	"features": {
+		"ghcr.io/devcontainers/features/node:1": {},
+		"ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+	},
+	"remoteUser": "vscode",
+	"containerUser": "vscode",
 	// Install CLI tools used by scripts/tdd-gates/*.sh:
 	//   - godog: Gherkin dry-run parsing (stage-a-gate.sh)
 	//   - yq: reads the .contract manifest's symbols list (stage-b-gate.sh)
 	//   - golangci-lint: lint pass (stage-c-gate.sh, stage-d-gate.sh), pinned to
 	//     match the version used in .github/workflows/ci.yml
-	"postCreateCommand": "go install github.com/cucumber/godog/cmd/godog@latest && go install github.com/mikefarah/yq/v4@latest && curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin latest"
+	"postCreateCommand": "go install github.com/cucumber/godog/cmd/godog@latest && go install github.com/mikefarah/yq/v4@latest && curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin latest"
 }
