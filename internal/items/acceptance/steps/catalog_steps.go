@@ -68,12 +68,15 @@ func RegisterCatalogSteps(sc *godog.ScenarioContext, w *acceptance.World) {
 	})
 
 	sc.Given(`^a create-item request for "([^"]+)" with category "([^"]+)" and reference "([^"]+)"$`, func(description, category, reference string) error {
-		w.StagedByRef[reference] = catalog.Command{
+		cmd := catalog.Command{
 			CorrelationID: reference,
 			Reference:     reference,
 			Action:        catalog.ActionCreate,
 			Description:   description,
 			Category:      category,
+		}
+		w.StagedByRef[reference] = func() (entities.Result, error) {
+			return w.SendAndWait(cmd)
 		}
 		return nil
 	})
@@ -217,20 +220,20 @@ func RegisterCatalogSteps(sc *godog.ScenarioContext, w *acceptance.World) {
 	})
 
 	sc.When(`^the request with reference "([^"]+)" is submitted$`, func(reference string) error {
-		cmd, ok := w.StagedByRef[reference]
+		fn, ok := w.StagedByRef[reference]
 		if !ok {
 			return fmt.Errorf("no staged request for reference %q", reference)
 		}
-		_, err := w.SendAndWait(cmd)
+		_, err := fn()
 		return err
 	})
 
 	sc.When(`^the same request with reference "([^"]+)" is submitted again$`, func(reference string) error {
-		cmd, ok := w.StagedByRef[reference]
+		fn, ok := w.StagedByRef[reference]
 		if !ok {
 			return fmt.Errorf("no staged request for reference %q", reference)
 		}
-		_, err := w.SendAndWait(cmd)
+		_, err := fn()
 		return err
 	})
 

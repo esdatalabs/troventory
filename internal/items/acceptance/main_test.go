@@ -27,6 +27,7 @@ func TestFeatures(t *testing.T) {
 			})
 
 			steps.RegisterCatalogSteps(sc, world)
+			steps.RegisterEnrichSteps(sc, world)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",

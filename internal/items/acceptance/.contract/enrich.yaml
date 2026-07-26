@@ -1,0 +1,186 @@
+# Symbol manifest for internal/items/services/enrich.
+#
+# This is the literal task list for Stage C (feature-implementer). Unlike
+# catalog's original manifest, the items/entities/dispatcher packages already
+# exist on disk (created for catalog) — this manifest is scoped to what
+# enrich needs on top of them. `go build ./...` currently fails with:
+#
+#   internal/items/acceptance/world.go:16:2: no required module provides
+#   package .../internal/items/services/enrich
+#
+# That single "no required module provides package" error is exactly
+# analogous to catalog's own original Stage B state (see catalog.yaml's
+# comment): services/enrich has zero files on disk, so the Go toolchain
+# can't resolve the import at all yet, and stops there rather than reporting
+# every downstream undefined symbol individually. Every symbol below is what
+# step defs, world.go, and the enrichtest fakes need Stage C to create (in a
+# brand-new services/enrich package) or extend (on the already-existing
+# entities/items packages) to make the whole acceptance suite compile and
+# pass. This list was produced by hand-verifying the design against a
+# throwaway, disposable implementation (built and run locally against this
+# exact test harness, then deleted) — not solely by reading the one visible
+# compiler error — the same way catalog.yaml's own author had to reason
+# about symbols hidden behind an unresolvable import.
+#
+# Package: github.com/esdatalabs/troventory/internal/items/entities
+#   MODIFY Item — add one new field:
+#     Barcode string  — the barcode/UPC this item was originally
+#                       scanned/created from, if any ("" for items created
+#                       through the catalog service's normal create flow).
+#                       This lets enrich (and its ItemGateway) identify a
+#                       not-yet-described "draft" item by the barcode it was
+#                       created from, independent of Description.
+#   ADD sentinel errors (errors.Is-checked business conditions), alongside
+#   the existing ones in entities/errors.go:
+#     ErrBarcodeInvalid           - the barcode/UPC submitted for enrichment
+#                                   is not well-formed. Checked BEFORE any
+#                                   Gateway call — no item lookup or product
+#                                   lookup is attempted once this fires.
+#     ErrProductNotFound          - the barcode is well-formed but the
+#                                   product lookup has no matching product.
+#                                   A business decision point (nothing to
+#                                   fill in), distinct from...
+#     ErrProductLookupUnavailable - ...the product lookup source could not
+#                                   be reached/timed out. Must be
+#                                   distinguishable from ErrProductNotFound
+#                                   via errors.Is (enrich.feature: "this is
+#                                   reported separately from no matching
+#                                   product being found").
+#   Reused as-is, no changes: Item's other existing fields (Description,
+#   Category, Photos, Archived, ...), Money, AssignedLocation, Result,
+#   Clock, AuditGateway, ErrItemNotFound, ErrItemArchived.
+#
+# Package: github.com/esdatalabs/troventory/internal/items/services/enrich
+#   (brand new package — no files exist yet)
+#   Command               - the enrich service's single inbound message:
+#                             CorrelationID string
+#                             Reference string          (idempotency key;
+#                               resubmitting the same reference is a
+#                               successful no-op past the first application,
+#                               which the fill-gaps-only rule already
+#                               guarantees without needing its own
+#                               reference-tracking Gateway call)
+#                             TargetDescription string   ("" => locate the
+#                               target item by Barcode instead, i.e. it's a
+#                               draft with no description yet; non-"" =>
+#                               locate by FindByDescription, e.g. an
+#                               already-cataloged item like "Old Microwave")
+#                             Barcode string             (the barcode/UPC to
+#                               validate and look up product details for.
+#                               ALSO the identity used to locate the target
+#                               item via FindByBarcode when TargetDescription
+#                               is ""; it is NOT necessarily the same value
+#                               the target item was originally created with
+#                               — enrich.feature's malformed-barcode scenario
+#                               submits a different, invalid barcode against
+#                               an existing draft to prove validation runs
+#                               before any lookup, independent of which item
+#                               it would have targeted.)
+#   ProductDetails        - the outcome of a successful product lookup:
+#                             Description string
+#                             Category string
+#                             Photo string
+#                           A plain DTO local to this service — not promoted
+#                           to entities since only enrich uses it
+#                           (ARCHITECTURE.md §3 rule 4).
+#   ItemGateway           - defined by enrich (the consumer), per
+#                           ARCHITECTURE.md §3 rule 1:
+#                             FindByDescription(ctx, description string) (entities.Item, error)
+#                             FindByBarcode(ctx, barcode string) (entities.Item, error)
+#                             Save(ctx, item entities.Item) error
+#                           FindByDescription/FindByBarcode return
+#                           entities.ErrItemNotFound when nothing matches.
+#                           (See internal/items/services/enrich/enrichtest/fakes.go
+#                           for the exact fake implementing this shape — it
+#                           wraps the same *catalogtest.StorageGateway
+#                           instance the catalog service is constructed
+#                           with, per ARCHITECTURE.md §3 rule 4: the same
+#                           underlying item repository, exposed through a
+#                           second, narrower, service-owned Gateway.)
+#   ProductLookupGateway  - defined by enrich, its only Gateway that isn't
+#                           shared with catalog:
+#                             Lookup(ctx, barcode string) (ProductDetails, error)
+#                           Returns entities.ErrProductNotFound for a
+#                           well-formed barcode with no known product, or
+#                           entities.ErrProductLookupUnavailable if the
+#                           lookup source is unreachable/times out.
+#   Service               - channel + loop + orchestration, per
+#                           ARCHITECTURE.md §4. Processing order per command,
+#                           each step short-circuiting the rest on error:
+#                             1. validate cmd.Barcode's format (pure, no
+#                                I/O) -> entities.ErrBarcodeInvalid if
+#                                malformed. This must run before ANY Gateway
+#                                call, including the item lookup.
+#                             2. locate the target item: FindByDescription(cmd.TargetDescription)
+#                                if cmd.TargetDescription != "", else
+#                                FindByBarcode(cmd.Barcode).
+#                                -> entities.ErrItemNotFound if missing.
+#                             3. -> entities.ErrItemArchived if the found
+#                                item is already archived.
+#                             4. ProductLookupGateway.Lookup(ctx, cmd.Barcode)
+#                                -> propagate ErrProductNotFound /
+#                                ErrProductLookupUnavailable as-is on error.
+#                             5. fill gaps only: set Description/Category
+#                                from the lookup result only where the
+#                                item's own field is currently "" /empty;
+#                                set Photos to a single-element slice with
+#                                the looked-up photo only if the item
+#                                currently has none. Never overwrite a
+#                                non-empty existing field.
+#                             6. ItemGateway.Save the (possibly unchanged)
+#                                item.
+#                           Report the outcome via entities.AuditGateway, per
+#                           ARCHITECTURE.md §4 rule 2 (Send has no return
+#                           value).
+#   New                   - func New(items ItemGateway, lookup ProductLookupGateway,
+#                           audit entities.AuditGateway, clock entities.Clock,
+#                           log *slog.Logger, buffer int, timeout time.Duration) *Service
+#   (*Service).Send       - func (s *Service) Send(cmd Command)
+#   (*Service).Close      - func (s *Service) Close()
+#
+# Package: github.com/esdatalabs/troventory/internal/items
+#   MODIFY Dispatcher (already exists) — add one method:
+#     EnrichItem(cmd enrich.Command) error  // errors only on "shutting down",
+#                                           // same contract as ManageItem
+#   MODIFY NewDispatcher (already exists) — change its signature to also
+#   accept the enrich service:
+#     func NewDispatcher(catalog *catalog.Service, enrich *enrich.Service) Dispatcher
+#   The concrete dispatcher's Close() cascade must also close the enrich
+#   Service (alongside the existing catalog Service), same ordering rule as
+#   ARCHITECTURE.md §4 rule 5.
+#   These two are changes to already-existing symbols, not new ones, so they
+#   won't surface as "undefined: X" compiler errors — calling the changed
+#   NewDispatcher with two arguments instead of one produces a "not enough
+#   arguments in call to items.NewDispatcher" error, and calling
+#   w.Dispatcher.EnrichItem(...) produces a "w.Dispatcher.EnrichItem
+#   undefined (type items.Dispatcher has no field or method EnrichItem)"
+#   error. Both are real, load-bearing compile failures caused directly by
+#   internal/items/acceptance/world.go — just not in the "undefined: X"
+#   shape a plain grep would catch — which is why they're called out here
+#   in prose rather than the symbols: list below (mirroring how catalog.yaml
+#   also documented new/changed fields on existing types in prose only).
+#
+# Package: github.com/esdatalabs/troventory/internal/items/services/enrich/enrichtest
+#   (already written by this stage, not Stage C's job — listed here only for
+#   context on what Stage C's new types must satisfy)
+#   ItemGateway, NewItemGateway, ProductLookupGateway, NewProductLookupGateway,
+#   and their Seed*/CallCount helper methods — see
+#   internal/items/services/enrich/enrichtest/fakes.go. This package already
+#   compiles against the enrich types listed above; it's part of why the
+#   build fails on an unresolvable import rather than a downstream
+#   "undefined" error inside enrichtest itself.
+
+symbols:
+  - entities.ErrBarcodeInvalid
+  - entities.ErrProductNotFound
+  - entities.ErrProductLookupUnavailable
+  - enrich.Command
+  - enrich.ProductDetails
+  - enrich.ItemGateway
+  - enrich.ProductLookupGateway
+  - enrich.Service
+  - enrich.New
+  - (*enrich.Service).Send
+  - (*enrich.Service).Close
+  - (items.Dispatcher).EnrichItem
+  - items.NewDispatcher
