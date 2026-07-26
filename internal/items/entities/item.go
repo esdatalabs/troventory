@@ -24,4 +24,9 @@ type Item struct {
 	// Archived marks this item as soft-removed. An archived item is
 	// retained for history but is no longer active.
 	Archived bool
+	// Barcode is the barcode/UPC this item was originally scanned/created
+	// from, if any ("" for items created through the catalog service's
+	// normal create flow). It lets the enrich service identify a
+	// not-yet-described "draft" item independent of Description.
+	Barcode string
 }

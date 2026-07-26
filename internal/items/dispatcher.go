@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/esdatalabs/troventory/internal/items/services/catalog"
+	"github.com/esdatalabs/troventory/internal/items/services/enrich"
 )
 
 // Dispatcher is the items feature's single inbound entry point. It routes
@@ -14,6 +15,11 @@ type Dispatcher interface {
 	// error if the Dispatcher has been closed; the command's own outcome is
 	// reported asynchronously via entities.AuditGateway.
 	ManageItem(cmd catalog.Command) error
+
+	// EnrichItem submits cmd to the enrich service. It only returns an
+	// error if the Dispatcher has been closed; the command's own outcome is
+	// reported asynchronously via entities.AuditGateway.
+	EnrichItem(cmd enrich.Command) error
 
 	// Close refuses further sends and drains every service before
 	// returning. It is idempotent.
@@ -26,6 +32,7 @@ var ErrDispatcherClosed = errors.New("items: dispatcher is closed")
 
 type dispatcher struct {
 	catalog *catalog.Service
+	enrich  *enrich.Service
 
 	mu        sync.Mutex
 	closed    bool
@@ -33,9 +40,9 @@ type dispatcher struct {
 }
 
 // NewDispatcher constructs the items feature's Dispatcher over the given
-// catalog.Service.
-func NewDispatcher(catalog *catalog.Service) Dispatcher {
-	return &dispatcher{catalog: catalog}
+// catalog.Service and enrich.Service.
+func NewDispatcher(catalog *catalog.Service, enrich *enrich.Service) Dispatcher {
+	return &dispatcher{catalog: catalog, enrich: enrich}
 }
 
 func (d *dispatcher) ManageItem(cmd catalog.Command) error {
@@ -49,6 +56,17 @@ func (d *dispatcher) ManageItem(cmd catalog.Command) error {
 	return nil
 }
 
+func (d *dispatcher) EnrichItem(cmd enrich.Command) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.closed {
+		return ErrDispatcherClosed
+	}
+	d.enrich.Send(cmd)
+	return nil
+}
+
 func (d *dispatcher) Close() {
 	d.closeOnce.Do(func() {
 		d.mu.Lock()
@@ -56,5 +74,6 @@ func (d *dispatcher) Close() {
 		d.mu.Unlock()
 
 		d.catalog.Close()
+		d.enrich.Close()
 	})
 }

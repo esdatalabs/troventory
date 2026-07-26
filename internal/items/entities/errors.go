@@ -27,4 +27,19 @@ var (
 	// ErrAssignedLocationArchived indicates the item's requested location
 	// assignment has been archived.
 	ErrAssignedLocationArchived = errors.New("assigned location is archived")
+
+	// ErrBarcodeInvalid indicates the barcode/UPC submitted for enrichment
+	// is not well-formed. It is checked before any Gateway call — no item
+	// lookup or product lookup is attempted once this fires.
+	ErrBarcodeInvalid = errors.New("barcode is not a valid barcode/UPC format")
+
+	// ErrProductNotFound indicates the barcode is well-formed but the
+	// product lookup has no matching product. Distinct from
+	// ErrProductLookupUnavailable: this is a business decision point
+	// (nothing to fill in), not an infrastructure failure.
+	ErrProductNotFound = errors.New("no matching product found for barcode")
+
+	// ErrProductLookupUnavailable indicates the product lookup source could
+	// not be reached or timed out.
+	ErrProductLookupUnavailable = errors.New("product lookup unavailable")
 )
