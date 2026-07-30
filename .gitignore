@@ -24,3 +24,8 @@ go.work.sum
 # env file
 .env
 .DS_Store
+
+# interactive CLI runtime data
+/exports/
+/.troventory/
+
