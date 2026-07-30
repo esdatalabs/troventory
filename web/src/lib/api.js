@@ -2,7 +2,12 @@
 // function returns parsed JSON on success and throws an Error carrying the
 // API's own message on failure, so callers can show it directly.
 
-const BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080'
+// Default to the API on the same host the dashboard itself was loaded
+// from, just on port 8080 — so a build/dev-server reachable from another
+// device (a different hostname/IP than "localhost") still finds the API
+// without VITE_API_BASE having to be baked in for that specific address.
+// Set VITE_API_BASE explicitly to override.
+const BASE = import.meta.env.VITE_API_BASE || `${window.location.protocol}//${window.location.hostname}:8080`
 
 async function request(method, path, body) {
   const res = await fetch(`${BASE}${path}`, {
