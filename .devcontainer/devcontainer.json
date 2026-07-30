@@ -6,7 +6,11 @@
 		"type=bind,source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,readonly,consistency=cached",
 		"type=bind,source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,readonly,consistency=cached",
 		"source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
-		"source=${localEnv:HOME}/.zsh_history,target=/home/vscode/.zsh_history,type=bind"
+		"source=${localEnv:HOME}/.zsh_history,target=/home/vscode/.zsh_history,type=bind",
+		// Named volume (not a host bind-mount, since there's no fixed host
+		// path to anchor to) so cmd/cli's and cmd/api's default data file
+		// (~/.troventory/data.json) survives a container rebuild.
+		"source=troventory-data,target=/home/vscode/.troventory,type=volume"
 	],
 	// Enable pulling packages from github
 	"containerEnv": {
@@ -20,6 +24,11 @@
 	},
 	"remoteUser": "vscode",
 	"containerUser": "vscode",
+	// Published via Docker (not just VS Code's loopback-only forwarding
+	// proxy) so the Troventory API (8080) and dashboard (5173) are
+	// reachable from other devices on the host's network, not just the
+	// host itself.
+	"appPort": ["8080:8080", "5173:5173"],
 	// Install CLI tools used by scripts/tdd-gates/*.sh:
 	//   - godog: Gherkin dry-run parsing (stage-a-gate.sh)
 	//   - yq: reads the .contract manifest's symbols list (stage-b-gate.sh)
